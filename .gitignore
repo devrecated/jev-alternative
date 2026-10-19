@@ -1,0 +1,27 @@
+# Training outputs, merged checkpoints, trainer state
+outputs/
+laya-ours/
+*-trainer/
+runs/
+*.safetensors
+*.bin
+*.pt
+*.gguf
+# Run artifacts pulled back from a GPU pod
+results/
+# Caches / envs
+__pycache__/
+*.pyc
+.venv/
+venv/
+.cache/
+wandb/
+.ipynb_checkpoints/
+# Internal docs and build inputs stay out of git
+*.pdf
+build/
+pages/
+# Secrets
+.env
+.env.*
+*.key
