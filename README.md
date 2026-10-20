@@ -8,20 +8,43 @@
 
 [Jev](https://madewithjev.com/jev-fine-tune) is TypeSafe's hosted decision model. You send it a piece of text and some typed questions, and it returns probabilities for each answer. The weights aren't released, so you can't fine-tune it or run it yourself. This repo takes [Laya](https://huggingface.co/convaiinnovations/laya), an open Jev-style decision model with Apache-2.0 weights, and fine-tunes it on your labelled decisions with [Unsloth](https://unsloth.ai/docs/basics/train-your-own-decision-model-with-unsloth). It then calibrates the result on a holdout and compares base vs fine-tuned on a separate test set.
 
-Built by [Devrecated](https://devrecated.com). Pairs with [runhug](https://github.com/adamsiwiec1/runhug) for RunPod setup.
+Built by [Devrecated](https://devrecated.com). Deploy and serve with [runhug](https://runhug.devrecated.com), our CLI that puts Hugging Face models on RunPod GPUs.
 
 ## Get started in 3 commands
 
 ```bash
-# 1) Install (needs one CUDA GPU; no GPU? see "Run on RunPod with runhug" below)
+# 1) Install (needs one CUDA GPU; no GPU? see "Deploy and serve with runhug" below)
 git clone https://github.com/devrecated/jev-alternative && cd jev-alternative && pip install -r requirements.txt
 
 # 2) Check your data
 python validate_data.py data/*.jsonl
 
-# 3) Smoke-test a LoRA fine-tune on the sample rows
-python train_laya.py --train data/sample_train.jsonl --test data/sample_test.jsonl --mode lora --max-steps 60
+# 3) Smoke-test a LoRA fine-tune on one of the sample categories
+python train_laya.py --category customer-support --mode lora --max-steps 60
 ```
+
+## Sample categories
+
+`samples/` has a small synthetic dataset for each of the industries below. We picked them from the use-case map in TypeSafe's own Jev docs ([docs.typesafe.ai/concepts/use-case-map](https://docs.typesafe.ai/concepts/use-case-map)). We aren't affiliated with TypeSafe, and the rows are made up: no real people, patients or customers.
+
+| `--category` | Industry (as TypeSafe lists it) | What the sample model decides |
+|---|---|---|
+| `customer-support` | Customer support | team, refund request, urgency |
+| `insurance-claims` | Insurance claims | claim type, missing info, complexity |
+| `financial-crime` | Financial crime | AML typology, escalate, risk |
+| `legal-compliance` | Legal and compliance | document type, violation, severity |
+| `recruiting` | Recruiting | role match, must-haves, evidence strength |
+| `lead-scoring` | Lead generation | segment, purchase intent, ICP fit |
+| `ecommerce-listings` | E-commerce marketplaces | category, counterfeit/prohibited flag, quality |
+| `content-moderation` | Moderation and trust and safety | policy broken, remove, severity |
+| `llm-guardrails` | LLM guardrails | injection / data exposure / unsafe advice, block, review level |
+| `research-screening` | Scientific discovery (medical and pharma literature) | study design, inclusion, methods completeness |
+
+Each folder has 30-34 training rows, 6-10 test rows and a short README. Pass `--category NAME` instead of `--train`/`--test`. Regenerate them with `python tools/make_samples.py`.
+
+> **Medical and pharmaceutical disclaimer.** The `research-screening` rows are invented abstracts. They aren't clinical evidence, and a model trained on them isn't a medical device. Don't use it for diagnosis, treatment, dosing or regulatory decisions.
+
+Your own data matters more than these. Forty rows will show you the format and run a smoke test, but you need a few hundred real labelled rows before the calibration numbers mean much.
 
 ## Features
 
@@ -30,7 +53,8 @@ python train_laya.py --train data/sample_train.jsonl --test data/sample_test.jso
 - Calibrates one temperature per question type on a holdout, so probabilities can drive automation thresholds.
 - Reports test-set accuracy, ECE, loss and record accuracy from Unsloth, plus a multi-class Brier score this script computes itself.
 - Saves a merged 16-bit Laya checkpoint and a `devrecated_eval.json` with base and fine-tuned numbers side by side.
-- Includes a RunPod launcher with a hard spend cap that always terminates the pod.
+- Deploys with [runhug](https://runhug.devrecated.com) (pinned v0.4.4) and includes a training launcher with a hard spend cap that always terminates the pod.
+- Ships ten synthetic sample datasets, one per industry, selectable with `--category`.
 - Serves the fine-tuned model through Unsloth Studio's Jev-compatible `/v1/systemone` endpoint.
 
 ## How it works
@@ -39,7 +63,9 @@ python train_laya.py --train data/sample_train.jsonl --test data/sample_test.jso
 |---|---|
 | `train_laya.py` | Loads Laya in 16-bit and builds the dataset. Splits off a calibration holdout and evaluates the **base** checkpoint. Trains, calibrates, then evaluates the **fine-tuned** model on the test set. Saves the merged checkpoint and `devrecated_eval.json`. |
 | `validate_data.py` | Checks JSONL rows against the Unsloth / Laya dataset rules and prints counts per label. |
-| `data/sample_train.jsonl`, `data/sample_test.jsonl` | Made-up support-ticket rows (32 train, 10 test, 3 questions each). Good for checking the format and a smoke test, but too small to fit calibration temperatures. |
+| `data/sample_train.jsonl`, `data/sample_test.jsonl` | Made-up support-ticket rows (32 train, 10 test, 3 questions each). Same as `samples/customer-support/`. |
+| `samples/<category>/` | Synthetic train/test JSONL plus a README for each industry. See [Sample categories](#sample-categories). |
+| `scripts/serve_with_runhug.sh` | Installs a pinned runhug release and deploys your fine-tuned checkpoint to a RunPod serverless endpoint. |
 | `scripts/runpod_train.py` | Runs `train_laya.py` once on a RunPod GPU pod, pulls back `train.log` and `devrecated_eval.json`, and always terminates the pod. |
 | `scripts/serve_results.py` | Runs on the pod and serves results only to requests that carry the run's random bearer token. |
 
@@ -89,22 +115,30 @@ Laya's settings differ from the LLM recipe in the Unsloth docs:
 UNSLOTH_SYSTEMONE_MODEL=outputs/laya-finetuned unsloth studio -H 0.0.0.0 -p 8888   # Jev-compatible /v1/systemone
 ```
 
-## Run on RunPod with runhug
+## Deploy and serve with runhug
 
-No local GPU? Rent one on [RunPod](https://www.runpod.io). [runhug](https://github.com/adamsiwiec1/runhug) is our CLI for RunPod and Hugging Face. Use it to store your keys and pick a GPU, then launch training with `scripts/runpod_train.py`.
+[runhug](https://runhug.devrecated.com) ([source](https://github.com/adamsiwiec1/runhug)) is how we deploy. It takes a Hugging Face repo, plans the GPU, shows the cost, and creates a RunPod serverless endpoint. RunPod is the backend runhug drives; you don't have to touch its console.
+
+Push your checkpoint to the Hub, then hand it to the script. It installs runhug **v0.4.4** (pinned, checked against the release's SHA256SUMS) and does a dry run first:
 
 ```bash
-# Install runhug (macOS / Linux; apt, dnf, Scoop, winget and npm are in the runhug README)
-brew install --cask openhat-security/tap/runhug
-# or: npm install -g runhug
+python train_laya.py --category insurance-claims --push-to-hub YOUR_ORG/laya-insurance
+runhug connect                                                   # one time: RunPod key via hidden prompt
+scripts/serve_with_runhug.sh YOUR_ORG/laya-insurance             # runhug inspect + deploy --dry-run --estimate
+scripts/serve_with_runhug.sh YOUR_ORG/laya-insurance --yes       # create the endpoint (this costs money)
+```
 
-runhug connect          # store your RunPod key (and `runhug connect hf` for Hugging Face)
-runhug gpu list         # see available GPU types
+The script only calls `runhug --version`, `runhug inspect`, `runhug deploy` and `runhug list`. To install runhug yourself instead: `go install github.com/adamsiwiec1/runhug/cmd/runhug@v0.4.4`, or see [runhug.devrecated.com](https://runhug.devrecated.com) for brew, apt, npm and the rest.
 
-# Launch one training run with a $5 cap
+runhug deploys with worker-vLLM. It reads Laya as a 421M-parameter `text-classification` model and plans a 16 GB GPU at about $0.58/hr while workers are up. We have only run the dry run. We haven't checked how vLLM's classification endpoint lines up with Jev's `/v1/systemone` shape, so if you need that exact API, use Unsloth Studio (see "Serve it" above).
+
+### Train on a rented GPU
+
+No local GPU? `scripts/runpod_train.py` runs one training job on a RunPod pod and always tears it down:
+
+```bash
 export RUNPOD_API_KEY=...            # the launcher reads it from the environment; never commit it
-python scripts/runpod_train.py --gpu "NVIDIA RTX A5000" --max-usd 5 -- \
-    --hf-dataset LocalLLaMA/typed-decisions --hf-config all --mode lora
+python scripts/runpod_train.py --gpu "NVIDIA RTX A5000" --max-usd 5 -- --category financial-crime --mode lora
 ```
 
 The launcher terminates the pod when training finishes, when the spend cap is hit, on any error and on Ctrl-C, then checks that the pod is gone. Results land in `results/<pod id>/`, which git ignores. While the pod runs, its result server on port 8000 answers only requests carrying a random token generated for that run. The token is printed once to your terminal and never written to `train.log`.

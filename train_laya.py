@@ -64,7 +64,24 @@ def read_jsonl(path: str) -> list[dict]:
     return rows
 
 
+SAMPLES = Path(__file__).resolve().parent / "samples"
+
+
+def resolve_category(args) -> None:
+    """--category NAME is shorthand for --train/--test pointing at samples/NAME/."""
+    if not getattr(args, "category", None):
+        return
+    d = SAMPLES / args.category
+    if not (d / "train.jsonl").is_file():
+        cats = sorted(p.name for p in SAMPLES.iterdir() if (p / "train.jsonl").is_file())
+        raise SystemExit(f"unknown category {args.category!r}; choose one of: {', '.join(cats)}")
+    args.train = str(d / "train.jsonl")
+    if not args.test:
+        args.test = str(d / "test.jsonl")
+
+
 def load_rows(args) -> tuple[list, list | None]:
+    resolve_category(args)
     if args.hf_dataset:
         from datasets import load_dataset
         train = load_dataset(args.hf_dataset, args.hf_config, split="train")
@@ -117,6 +134,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument("--train", help="JSONL with state / questions / gold per line")
+    src.add_argument("--category", help="use samples/<category>/{train,test}.jsonl (see samples/README.md)")
     src.add_argument("--hf-dataset", help="Hugging Face dataset id, e.g. LocalLLaMA/typed-decisions")
     ap.add_argument("--hf-config", default="all")
     ap.add_argument("--test", help="separate held-out JSONL, never trained or calibrated on")
