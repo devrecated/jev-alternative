@@ -3,7 +3,8 @@
 
 Reads RUNPOD_API_KEY from the environment (never printed). The repo's code and data are shipped to the
 pod as a base64 tarball in an env var, so the pod needs no git access. When training finishes the pod
-serves its output folder on port 8000 through the Runpod proxy; this script downloads train.log and
+serves its output folder on port 8000 through the Runpod proxy, behind a random bearer token that
+is generated locally for each run (printed once to your terminal, never sent to train.log); this script downloads train.log and
 devrecated_eval.json into results/<pod id>/ and then terminates the pod.
 
 Spend guard: the pod is terminated once (cost per hour x elapsed hours) reaches --max-usd, on any
@@ -23,6 +24,7 @@ import base64
 import io
 import json
 import os
+import secrets
 import shlex
 import sys
 import tarfile
@@ -34,7 +36,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 API = "https://api.runpod.io/graphql"
 IMAGE = "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04"
-SHIP = ["train_laya.py", "validate_data.py", "requirements.txt", "data"]
+SHIP = ["train_laya.py", "validate_data.py", "requirements.txt", "data", "scripts/serve_results.py"]
+TOKEN = secrets.token_urlsafe(32)  # bearer token for the pod's result server; one per run
 
 
 def gql(query: str, variables: dict | None = None) -> dict:
@@ -72,7 +75,7 @@ def start_command(train_args: list[str]) -> str:
         f"USE_TF=0 python train_laya.py {args} --out /work/out/laya-finetuned; "
         "echo EXIT_CODE=$? ) 2>&1 | tee /work/out/train.log; "
         "cp /work/out/laya-finetuned/devrecated_eval.json /work/out/ 2>/dev/null; "
-        "touch /work/out/DONE; cd /work/out && python -m http.server 8000"
+        "touch /work/out/DONE; python /work/scripts/serve_results.py /work/out"
     )
     return "bash -c " + shlex.quote(script)
 
@@ -84,7 +87,9 @@ def pod_status(pod_id: str) -> dict | None:
 
 def fetch(pod_id: str, name: str) -> bytes | None:
     try:
-        with urllib.request.urlopen(f"https://{pod_id}-8000.proxy.runpod.net/{name}", timeout=30) as r:
+        with urllib.request.urlopen(urllib.request.Request(
+                f"https://{pod_id}-8000.proxy.runpod.net/{name}",
+                headers={"Authorization": f"Bearer {TOKEN}"}), timeout=30) as r:
             return r.read()
     except (urllib.error.URLError, TimeoutError, ConnectionError):
         return None
@@ -124,10 +129,12 @@ def main() -> None:
             "cloudType": args.cloud, "gpuCount": 1, "gpuTypeId": args.gpu, "name": "laya-unsloth-train",
             "imageName": IMAGE, "containerDiskInGb": args.disk_gb, "volumeInGb": 0, "ports": "8000/http",
             "dockerArgs": start_command(train_args),
-            "env": [{"key": "LAYA_PAYLOAD", "value": payload()}, {"key": "USE_TF", "value": "0"}],
+            "env": [{"key": "LAYA_PAYLOAD", "value": payload()}, {"key": "USE_TF", "value": "0"},
+                    {"key": "LAYA_TOKEN", "value": TOKEN}],
         }},
     )["podFindAndDeployOnDemand"]
     pod_id, rate = pod["id"], float(pod["costPerHr"])
+    print(f"Result-server token for this run (shown once, not logged): {TOKEN}")
     print(f"Pod {pod_id} on {pod['machine']['gpuDisplayName']} at ${rate:.3f}/hr; cap ${args.max_usd:.2f}")
     started = time.time()
     out_dir = ROOT / "results" / pod_id

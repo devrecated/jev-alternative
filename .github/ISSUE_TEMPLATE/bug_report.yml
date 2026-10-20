@@ -1,0 +1,15 @@
+name: Bug report
+description: Something in training, validation or the RunPod launcher doesn't work
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes: {label: What happened, description: Include the command you ran and the error output. Remove any API keys.}
+    validations: {required: true}
+  - type: textarea
+    id: expected
+    attributes: {label: What you expected}
+  - type: input
+    id: env
+    attributes: {label: Environment, placeholder: "GPU, OS, Python, unsloth version"}
+    validations: {required: true}

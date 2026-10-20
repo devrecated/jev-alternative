@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" aria-label="jev-alternative: fine-tune your own open Jev-style decision model">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0f172a"/><stop offset="1" stop-color="#1e3a5f"/></linearGradient></defs>
+  <rect width="1200" height="300" rx="18" fill="url(#g)"/>
+  <text x="60" y="120" font-family="ui-monospace,Menlo,monospace" font-size="56" font-weight="700" fill="#f8fafc">jev-alternative</text>
+  <text x="60" y="180" font-family="system-ui,sans-serif" font-size="28" fill="#cbd5e1">Fine-tune an open Jev-style decision model on your own labels.</text>
+  <text x="60" y="230" font-family="system-ui,sans-serif" font-size="22" fill="#94a3b8">Laya + Unsloth · calibrated probabilities · runs on one GPU or a RunPod pod</text>
+</svg>
