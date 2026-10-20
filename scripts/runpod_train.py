@@ -36,7 +36,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 API = "https://api.runpod.io/graphql"
 IMAGE = "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04"
-SHIP = ["train_laya.py", "validate_data.py", "requirements.txt", "data", "scripts/serve_results.py"]
+SHIP = ["train_laya.py", "validate_data.py", "requirements.txt", "data", "samples", "scripts/serve_results.py"]
 TOKEN = secrets.token_urlsafe(32)  # bearer token for the pod's result server; one per run
 
 
@@ -71,7 +71,7 @@ def start_command(train_args: list[str]) -> str:
         "set -o pipefail; mkdir -p /work/out && cd /work && "
         "echo \"$LAYA_PAYLOAD\" | base64 -d | tar xz && "
         "(pip install --upgrade pip && pip install --upgrade -r requirements.txt && "
-        "python validate_data.py data/*.jsonl && nvidia-smi && "
+        "python validate_data.py data/*.jsonl samples/*/*.jsonl && nvidia-smi && "
         f"USE_TF=0 python train_laya.py {args} --out /work/out/laya-finetuned; "
         "echo EXIT_CODE=$? ) 2>&1 | tee /work/out/train.log; "
         "cp /work/out/laya-finetuned/devrecated_eval.json /work/out/ 2>/dev/null; "
